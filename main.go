@@ -68,7 +68,7 @@ import (
 
 const (
 	pluginName    = "codex-429-autoban"
-	pluginVersion = "0.2.2"
+	pluginVersion = "0.2.3"
 
 	// providerCodex is the CPA provider key for OpenAI Codex (ChatGPT backend).
 	providerCodex = "codex"
@@ -277,8 +277,8 @@ func pluginRegistration() registration {
 		Metadata: pluginapi.Metadata{
 			Name:             pluginName,
 			Version:          pluginVersion,
-			Author:           "ysxk",
-			GitHubRepository: "https://github.com/ysxk/codex-429-autoban",
+			Author:           "sizhe233",
+			GitHubRepository: "https://github.com/sizhe233/codex-429-autoban",
 			ConfigFields:     []pluginapi.ConfigField{},
 		},
 		Capabilities: registrationCapability{
