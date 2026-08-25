@@ -1,4 +1,4 @@
-# Build the codex-429-autoban plugin into a Windows .dll.
+# Build the codex-429-autoban-sizhe233 plugin into a Windows .dll.
 #
 # Requirements:
 #   - Go (this plugin needs Go 1.21+; it vendors the CPA SDK locally so it
@@ -9,13 +9,13 @@
 #     or TDM-GCC, or MSYS2's mingw-w64-x86_64-gcc. Make sure gcc.exe is on PATH.
 #
 # After a successful build, copy the .dll into your CPA plugins directory:
-#         plugins/windows/amd64/codex-429-autoban.dll
+#         plugins/windows/amd64/codex-429-autoban-sizhe233.dll
 #   (CPA also accepts it directly under plugins/ . The plugin id is the file
-#    name without the extension: "codex-429-autoban".)
+#    name without the extension: "codex-429-autoban-sizhe233".)
 
 $ErrorActionPreference = "Stop"
 
-$out = "codex-429-autoban.dll"
+$out = "codex-429-autoban-sizhe233.dll"
 Write-Host "Building $out (CGO c-shared)..."
 $env:CGO_ENABLED = "1"
 go build -buildmode=c-shared -o $out .

@@ -1,4 +1,4 @@
-// Package main implements the codex-429-autoban CPA plugin.
+// Package main implements the codex-429-autoban-sizhe233 CPA plugin.
 //
 // It auto-disables a Codex credential after a 429 and auto-re-enables it
 // once the rate-limit window that was hit has refreshed.
@@ -62,13 +62,13 @@ import (
 	"time"
 	"unsafe"
 
-	"codex-429-autoban/cpasdk/pluginabi"
-	"codex-429-autoban/cpasdk/pluginapi"
+	"codex-429-autoban-sizhe233/cpasdk/pluginabi"
+	"codex-429-autoban-sizhe233/cpasdk/pluginapi"
 )
 
 const (
-	pluginName    = "codex-429-autoban"
-	pluginVersion = "0.2.3"
+	pluginName    = "codex-429-autoban-sizhe233"
+	pluginVersion = "0.3.0"
 
 	// providerCodex is the CPA provider key for OpenAI Codex (ChatGPT backend).
 	providerCodex = "codex"
@@ -141,7 +141,7 @@ func (s *banState) clearIfExpired(authID string, now time.Time) (stillBanned boo
 	if !now.Before(e.ResetAt) {
 		// Reset time has passed: auto re-enable.
 		delete(s.bans, authID)
-		slog.Info("codex-429-autoban: auto re-enabled credential",
+		slog.Info("codex-429-autoban-sizhe233: auto re-enabled credential",
 			"auth_id", authID, "window", e.Window, "reset_at", e.ResetAt.Format(time.RFC3339))
 		return false
 	}
@@ -157,7 +157,7 @@ func (s *banState) clearExpired(now time.Time) int {
 		if !now.Before(e.ResetAt) {
 			delete(s.bans, authID)
 			removed++
-			slog.Info("codex-429-autoban: auto re-enabled credential",
+			slog.Info("codex-429-autoban-sizhe233: auto re-enabled credential",
 				"auth_id", authID, "window", e.Window, "reset_at", e.ResetAt.Format(time.RFC3339))
 		}
 	}
@@ -297,7 +297,7 @@ func handleUsage(raw []byte) ([]byte, error) {
 	}
 	var record pluginapi.UsageRecord
 	if errUnmarshal := json.Unmarshal(raw, &record); errUnmarshal != nil {
-		slog.Warn("codex-429-autoban: failed to decode usage record", "error", errUnmarshal)
+		slog.Warn("codex-429-autoban-sizhe233: failed to decode usage record", "error", errUnmarshal)
 		return okEnvelope(map[string]any{})
 	}
 
@@ -311,7 +311,7 @@ func handleUsage(raw []byte) ([]byte, error) {
 	}
 	authID := strings.TrimSpace(record.AuthID)
 	if authID == "" {
-		slog.Warn("codex-429-autoban: 429 received but AuthID is empty, cannot ban")
+		slog.Warn("codex-429-autoban-sizhe233: 429 received but AuthID is empty, cannot ban")
 		return okEnvelope(map[string]any{})
 	}
 
@@ -326,14 +326,14 @@ func handleUsage(raw []byte) ([]byte, error) {
 			Window:   "5h (fallback, headers missing)",
 			BannedAt: now,
 		}
-		slog.Warn("codex-429-autoban: x-codex-* headers missing on 429, falling back to 5h ban",
+		slog.Warn("codex-429-autoban-sizhe233: x-codex-* headers missing on 429, falling back to 5h ban",
 			"auth_id", authID)
 	} else {
 		entry.BannedAt = time.Now()
 	}
 
 	banStore.set(authID, entry)
-	slog.Info("codex-429-autoban: banned credential after 429",
+	slog.Info("codex-429-autoban-sizhe233: banned credential after 429",
 		"auth_id", authID,
 		"window", entry.Window,
 		"reset_at", entry.ResetAt.Format(time.RFC3339))
@@ -470,7 +470,7 @@ func managementRegistration() pluginapi.ManagementRegistrationResponse {
 			{
 				Method:      http.MethodGet,
 				Path:        managementRoutePrefix + "/bans",
-				Description: "List Codex auths currently held out of the pool by codex-429-autoban.",
+				Description: "List Codex auths currently held out of the pool by codex-429-autoban-sizhe233.",
 			},
 			{
 				Method:      http.MethodPost,
@@ -611,7 +611,7 @@ func handleManagementUnban(req pluginapi.ManagementRequest) pluginapi.Management
 
 	entry, removed := banStore.clear(authID)
 	if removed {
-		slog.Info("codex-429-autoban: manually re-enabled credential",
+		slog.Info("codex-429-autoban-sizhe233: manually re-enabled credential",
 			"auth_id", authID, "window", entry.Window, "reset_at", entry.ResetAt.Format(time.RFC3339))
 	}
 	return jsonManagementResponse(http.StatusOK, map[string]any{
@@ -625,7 +625,7 @@ func handleManagementUnban(req pluginapi.ManagementRequest) pluginapi.Management
 func handleManagementUnbanAll() pluginapi.ManagementResponse {
 	removed := banStore.clearAll()
 	if removed > 0 {
-		slog.Info("codex-429-autoban: manually re-enabled all credentials", "removed", removed)
+		slog.Info("codex-429-autoban-sizhe233: manually re-enabled all credentials", "removed", removed)
 	}
 	return jsonManagementResponse(http.StatusOK, map[string]any{
 		"ok":      true,
@@ -692,7 +692,7 @@ func managementStatusPage() string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>codex-429-autoban</title>
+  <title>codex-429-autoban-sizhe233</title>
   <style>
     :root { color-scheme: light dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     body { max-width: 980px; margin: 32px auto; padding: 0 16px; line-height: 1.5; }
@@ -711,7 +711,7 @@ func managementStatusPage() string {
   </style>
 </head>
 <body>
-  <h1>codex-429-autoban</h1>
+  <h1>codex-429-autoban-sizhe233</h1>
   <p class="muted">版本 ` + version + ` · 手动把已重置额度的 Codex 账号加回号池。</p>
 
   <div class="card">
@@ -732,18 +732,18 @@ func managementStatusPage() string {
 
   <div class="card">
     <h2>API</h2>
-    <pre>GET  /v0/management/plugins/codex-429-autoban/bans
-POST /v0/management/plugins/codex-429-autoban/unban      {"auth_id":"..."}
-POST /v0/management/plugins/codex-429-autoban/unban-all</pre>
+    <pre>GET  /v0/management/plugins/codex-429-autoban-sizhe233/bans
+POST /v0/management/plugins/codex-429-autoban-sizhe233/unban      {"auth_id":"..."}
+POST /v0/management/plugins/codex-429-autoban-sizhe233/unban-all</pre>
   </div>
 
   <script>
-    const apiBase = "/v0/management/plugins/codex-429-autoban";
+    const apiBase = "/v0/management/plugins/codex-429-autoban-sizhe233";
     const keyInput = document.getElementById("key");
-    const savedKey = localStorage.getItem("codex429AutobanManagementKey") || "";
+    const savedKey = localStorage.getItem("codex429AutobanSizhe233ManagementKey") || "";
     keyInput.value = savedKey;
     keyInput.addEventListener("change", function () {
-      localStorage.setItem("codex429AutobanManagementKey", keyInput.value);
+      localStorage.setItem("codex429AutobanSizhe233ManagementKey", keyInput.value);
     });
 
     function headers() {

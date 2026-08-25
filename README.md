@@ -1,4 +1,4 @@
-# codex-429-autoban
+# codex-429-autoban-sizhe233
 
 一个 CPA（CLIProxyAPI）插件：**Codex 凭证收到 429（限流）后自动禁用，并在对应限额窗口刷新后自动解禁。**
 
@@ -68,7 +68,7 @@ cd codex-429-autoban
 bash build.sh          # 任意平台
 ```
 
-成功后会生成 `codex-429-autoban.dll`（Windows）。
+成功后会生成 `codex-429-autoban-sizhe233.dll`（Windows）。
 
 > 本插件把 CPA 的 `sdk/pluginabi`、`sdk/pluginapi` 两个包**本地化**到 `cpasdk/` 目录，因此**不需要** Go 1.26（CPA 主程序才需要），Go 1.21+ 即可编译。
 
@@ -81,9 +81,9 @@ plugins/windows/amd64/
 plugins/
 ```
 
-把 dll 放进去即可（推荐 `plugins/windows/amd64/codex-429-autoban.dll`）。
+把 dll 放进去即可（推荐 `plugins/windows/amd64/codex-429-autoban-sizhe233.dll`）。
 
-**插件 ID = 文件名去掉扩展名**，即 `codex-429-autoban`。
+**插件 ID = 文件名去掉扩展名**，即 `codex-429-autoban-sizhe233`。
 
 ### 4. 在 config.yaml 启用
 
@@ -91,7 +91,7 @@ plugins/
 plugins:
   enabled: true
   configs:
-    codex-429-autoban:
+    codex-429-autoban-sizhe233:
       enabled: true
       priority: 100   # 数字越大越先执行；建议设高一点，让禁用判断先于其他调度插件
 ```
@@ -105,7 +105,7 @@ CPA 插件没有“Codex 已手动重置额度”的事件回调，所以插件�
 资源页（在 CPA 管理界面的插件菜单里也会出现）：
 
 ```text
-/v0/resource/plugins/codex-429-autoban/status
+/v0/resource/plugins/codex-429-autoban-sizhe233/status
 ```
 
 API（需要 CPA 管理密钥，支持 `Authorization: Bearer <key>` 或 `X-Management-Key`）：
@@ -113,17 +113,17 @@ API（需要 CPA 管理密钥，支持 `Authorization: Bearer <key>` 或 `X-Mana
 ```bash
 # 查看当前被插件排除的账号
 curl -H "Authorization: Bearer $CPA_MANAGEMENT_KEY" \
-  http://localhost:8317/v0/management/plugins/codex-429-autoban/bans
+  http://localhost:8317/v0/management/plugins/codex-429-autoban-sizhe233/bans
 
 # 将单个账号加回号池
 curl -X POST -H "Authorization: Bearer $CPA_MANAGEMENT_KEY" \
   -H "Content-Type: application/json" \
   -d '{"auth_id":"<AUTH_ID>"}' \
-  http://localhost:8317/v0/management/plugins/codex-429-autoban/unban
+  http://localhost:8317/v0/management/plugins/codex-429-autoban-sizhe233/unban
 
 # 清空全部插件 ban 状态
 curl -X POST -H "Authorization: Bearer $CPA_MANAGEMENT_KEY" \
-  http://localhost:8317/v0/management/plugins/codex-429-autoban/unban-all
+  http://localhost:8317/v0/management/plugins/codex-429-autoban-sizhe233/unban-all
 ```
 
 注意：这里清除的是本插件的**内存 ban 状态**。请只在你确认 Codex 侧额度已经恢复（例如手动重置额度/使用重置卡）后使用，否则账号可能马上再次 429 并被重新 ban。
@@ -148,7 +148,7 @@ curl -X POST -H "Authorization: Bearer $CPA_MANAGEMENT_KEY" \
 
 - 禁用状态保存在**插件进程内存**里。CPA 重启后会清空（重启同时也清了 CPA 自己的冷却状态，所以一致）。
 - 如果你通过 Management API 手动加回号池，清除的也是这份插件内存状态；不会修改 Codex 侧额度，也不会修改 CPA 凭证文件。
-- 日志：禁用/解禁都会通过 CPA 的日志输出（`slog`），关键字 `codex-429-autoban:`。
+- 日志：禁用/解禁都会通过 CPA 的日志输出（`slog`），关键字 `codex-429-autoban-sizhe233:`。
 
 ## 文件说明
 

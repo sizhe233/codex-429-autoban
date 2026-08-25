@@ -1,4 +1,4 @@
-# Build and release the codex-429-autoban plugin for all supported platforms.
+# Build and release the codex-429-autoban-sizhe233 plugin for all supported platforms.
 #
 # Triggered by pushing a tag named v<version> (e.g. v0.1.0). For each platform
 # it builds the CGO dynamic library with the host's native C toolchain, packs
@@ -6,10 +6,10 @@
 # everything to the GitHub Release bound to that tag.
 #
 # Output assets (version = tag without the leading "v"):
-#   codex-429-autoban_<version>_linux_amd64.zip      -> codex-429-autoban.so
-#   codex-429-autoban_<version>_linux_arm64.zip      -> codex-429-autoban.so
-#   codex-429-autoban_<version>_darwin_arm64.zip     -> codex-429-autoban.dylib
-#   codex-429-autoban_<version>_windows_amd64.zip    -> codex-429-autoban.dll
+#   codex-429-autoban-sizhe233_<version>_linux_amd64.zip      -> codex-429-autoban-sizhe233.so
+#   codex-429-autoban-sizhe233_<version>_linux_arm64.zip      -> codex-429-autoban-sizhe233.so
+#   codex-429-autoban-sizhe233_<version>_darwin_arm64.zip     -> codex-429-autoban-sizhe233.dylib
+#   codex-429-autoban-sizhe233_<version>_windows_amd64.zip    -> codex-429-autoban-sizhe233.dll
 #   checksums.txt
 name: Release Plugin
 
@@ -62,7 +62,7 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          go build -buildmode=c-shared -o codex-429-autoban.${{ matrix.ext }} .
+          go build -buildmode=c-shared -o codex-429-autoban-sizhe233.${{ matrix.ext }} .
         shell: bash
 
       - name: Compute version (tag without leading v)
@@ -75,10 +75,10 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path staging | Out-Null
-          Copy-Item codex-429-autoban.${{ matrix.ext }} staging/
-          $asset = "codex-429-autoban_${{ steps.ver.outputs.version }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip"
+          Copy-Item codex-429-autoban-sizhe233.${{ matrix.ext }} staging/
+          $asset = "codex-429-autoban-sizhe233_${{ steps.ver.outputs.version }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip"
           # Compress-Archive stores the file at the archive root when given a bare file path.
-          Compress-Archive -Path "staging/codex-429-autoban.${{ matrix.ext }}" -DestinationPath $asset -Force
+          Compress-Archive -Path "staging/codex-429-autoban-sizhe233.${{ matrix.ext }}" -DestinationPath $asset -Force
           "asset=$asset" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Upload artifact

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Build the codex-429-autoban plugin.
+# Build the codex-429-autoban-sizhe233 plugin.
 # CGO is mandatory for CPA plugins, so a C compiler (gcc/clang) must be on PATH.
-# Output: codex-429-autoban.dll (windows), .dylib (darwin), .so (linux).
+# Output: codex-429-autoban-sizhe233.dll (windows), .dylib (darwin), .so (linux).
 set -euo pipefail
 
 ext="so"
@@ -9,7 +9,7 @@ case "$(go env GOOS)" in
     windows) ext="dll" ;;
     darwin)  ext="dylib" ;;
 esac
-out="codex-429-autoban.${ext}"
+out="codex-429-autoban-sizhe233.${ext}"
 
 echo "Building $out (CGO c-shared)..."
 CGO_ENABLED=1 go build -buildmode=c-shared -o "$out" .
