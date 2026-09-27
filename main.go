@@ -13,7 +13,7 @@
 //     timer hook) and delegates the actual selection to the built-in
 //     round-robin scheduler.
 //   - management_api: exposes a small status page and authenticated API for
-//     manually clearing the in-memory ban state after the user resets Codex
+//     manually clearing the persisted ban state after the user resets Codex
 //     quota or uses a reset card upstream.
 package main
 
@@ -52,9 +52,12 @@ import "C"
 
 import (
 	"encoding/json"
+	"errors"
 	"html"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -68,7 +71,7 @@ import (
 
 const (
 	pluginName    = "codex-429-autoban-sizhe233"
-	pluginVersion = "0.3.0"
+	pluginVersion = "0.3.1"
 
 	// providerCodex is the CPA provider key for OpenAI Codex (ChatGPT backend).
 	providerCodex = "codex"
@@ -87,28 +90,37 @@ const (
 	usedPercentThreshold = 100
 
 	managementRoutePrefix = "/plugins/" + pluginName
+
+	banStateFileEnv     = "CPA_AUTOBAN_STATE_FILE"
+	defaultBanStateFile = "/CLIProxyAPI/data/codex-429-autoban-sizhe233-bans.json"
+	banStateSchema      = 1
 )
 
 // banStore holds, per credential, the time at which it may be used again.
 // A credential is absent from the map when it is not currently banned.
-// This is in-process memory; CPA plugins are long-lived and loaded once, so
-// state persists across requests. It does not survive a CPA restart, which is
-// acceptable because a restart also clears CPA's own cooldown state.
+// The active state is persisted under CPA's data directory so bans survive a
+// CPA restart. Expired entries are removed when the plugin starts or selects.
 var banStore banState
 
 type banState struct {
-	mu   sync.Mutex
-	bans map[string]banEntry // keyed by AuthID
+	mu        sync.Mutex
+	persistMu sync.Mutex
+	bans      map[string]banEntry // keyed by AuthID
 }
 
 type banEntry struct {
 	// ResetAt is the upstream-reported time at which the exhausted window
 	// refreshes. The credential is skipped until now >= ResetAt.
-	ResetAt time.Time
+	ResetAt time.Time `json:"reset_at"`
 	// Window is a human-readable label of which limit was hit ("5h" or "week").
-	Window string
+	Window string `json:"window"`
 	// BannedAt is when the ban was recorded, for logging only.
-	BannedAt time.Time
+	BannedAt time.Time `json:"banned_at"`
+}
+
+type persistedBanState struct {
+	SchemaVersion int                 `json:"schema_version"`
+	Bans          map[string]banEntry `json:"bans"`
 }
 
 // lookup returns the ban entry for the given auth ID and whether one exists.
@@ -122,36 +134,46 @@ func (s *banState) lookup(authID string) (banEntry, bool) {
 // set records a ban for the given auth ID.
 func (s *banState) set(authID string, e banEntry) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.bans == nil {
 		s.bans = make(map[string]banEntry)
 	}
 	s.bans[authID] = e
+	s.mu.Unlock()
+	s.persistCurrent()
+}
+
+// activeEntry returns a credential's active ban and clears it if the reset
+// time has passed.
+func (s *banState) activeEntry(authID string, now time.Time) (banEntry, bool) {
+	s.mu.Lock()
+	e, ok := s.bans[authID]
+	if !ok {
+		s.mu.Unlock()
+		return banEntry{}, false
+	}
+	if !now.Before(e.ResetAt) {
+		// Reset time has passed: auto re-enable.
+		delete(s.bans, authID)
+		s.mu.Unlock()
+		slog.Info("codex-429-autoban-sizhe233: auto re-enabled credential",
+			"auth_id", authID, "window", e.Window, "reset_at", e.ResetAt.Format(time.RFC3339))
+		s.persistCurrent()
+		return banEntry{}, false
+	}
+	s.mu.Unlock()
+	return e, true
 }
 
 // clearIfExpired removes the ban for authID if its reset time has passed.
 // Returns whether the credential is currently banned AFTER this check.
 func (s *banState) clearIfExpired(authID string, now time.Time) (stillBanned bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	e, ok := s.bans[authID]
-	if !ok {
-		return false
-	}
-	if !now.Before(e.ResetAt) {
-		// Reset time has passed: auto re-enable.
-		delete(s.bans, authID)
-		slog.Info("codex-429-autoban-sizhe233: auto re-enabled credential",
-			"auth_id", authID, "window", e.Window, "reset_at", e.ResetAt.Format(time.RFC3339))
-		return false
-	}
-	return true
+	_, stillBanned = s.activeEntry(authID, now)
+	return stillBanned
 }
 
 // clearExpired removes every ban whose reset time has passed.
 func (s *banState) clearExpired(now time.Time) int {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	removed := 0
 	for authID, e := range s.bans {
 		if !now.Before(e.ResetAt) {
@@ -161,19 +183,27 @@ func (s *banState) clearExpired(now time.Time) int {
 				"auth_id", authID, "window", e.Window, "reset_at", e.ResetAt.Format(time.RFC3339))
 		}
 	}
+	s.mu.Unlock()
+	if removed > 0 {
+		s.persistCurrent()
+	}
 	return removed
 }
 
 // clear removes the ban for authID, if present.
 func (s *banState) clear(authID string) (banEntry, bool) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.bans == nil {
+		s.mu.Unlock()
 		return banEntry{}, false
 	}
 	e, ok := s.bans[authID]
 	if ok {
 		delete(s.bans, authID)
+	}
+	s.mu.Unlock()
+	if ok {
+		s.persistCurrent()
 	}
 	return e, ok
 }
@@ -181,9 +211,10 @@ func (s *banState) clear(authID string) (banEntry, bool) {
 // clearAll removes every active ban and returns how many were removed.
 func (s *banState) clearAll() int {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	n := len(s.bans)
 	s.bans = make(map[string]banEntry)
+	s.mu.Unlock()
+	s.persistCurrent()
 	return n
 }
 
@@ -191,11 +222,123 @@ func (s *banState) clearAll() int {
 func (s *banState) snapshot() map[string]banEntry {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make(map[string]banEntry, len(s.bans))
-	for authID, e := range s.bans {
+	return cloneBans(s.bans)
+}
+
+func cloneBans(bans map[string]banEntry) map[string]banEntry {
+	out := make(map[string]banEntry, len(bans))
+	for authID, e := range bans {
 		out[authID] = e
 	}
 	return out
+}
+
+func banStateFilePath() string {
+	if path := strings.TrimSpace(os.Getenv(banStateFileEnv)); path != "" {
+		return path
+	}
+	return defaultBanStateFile
+}
+
+// persistCurrent serializes the newest in-memory snapshot. Taking the snapshot
+// after acquiring persistMu prevents an older concurrent update from replacing
+// a newer state file.
+func (s *banState) persistCurrent() {
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
+	s.persist(s.snapshot())
+}
+
+func (s *banState) persist(snapshot map[string]banEntry) {
+	path := banStateFilePath()
+	payload, errMarshal := json.Marshal(persistedBanState{
+		SchemaVersion: banStateSchema,
+		Bans:          snapshot,
+	})
+	if errMarshal != nil {
+		slog.Error("codex-429-autoban-sizhe233: failed to encode ban state", "error", errMarshal)
+		return
+	}
+
+	dir := filepath.Dir(path)
+	if errMkdir := os.MkdirAll(dir, 0o700); errMkdir != nil {
+		slog.Error("codex-429-autoban-sizhe233: failed to create ban state directory", "error", errMkdir)
+		return
+	}
+	tmp, errCreate := os.CreateTemp(dir, ".codex-429-autoban-bans-*")
+	if errCreate != nil {
+		slog.Error("codex-429-autoban-sizhe233: failed to create ban state file", "error", errCreate)
+		return
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+	if errChmod := tmp.Chmod(0o600); errChmod != nil {
+		_ = tmp.Close()
+		slog.Error("codex-429-autoban-sizhe233: failed to secure ban state file", "error", errChmod)
+		return
+	}
+	if _, errWrite := tmp.Write(payload); errWrite != nil {
+		_ = tmp.Close()
+		slog.Error("codex-429-autoban-sizhe233: failed to write ban state", "error", errWrite)
+		return
+	}
+	if errSync := tmp.Sync(); errSync != nil {
+		_ = tmp.Close()
+		slog.Error("codex-429-autoban-sizhe233: failed to sync ban state", "error", errSync)
+		return
+	}
+	if errClose := tmp.Close(); errClose != nil {
+		slog.Error("codex-429-autoban-sizhe233: failed to close ban state", "error", errClose)
+		return
+	}
+	if errRename := os.Rename(tmpName, path); errRename != nil {
+		slog.Error("codex-429-autoban-sizhe233: failed to replace ban state", "error", errRename)
+	}
+}
+
+func (s *banState) load(now time.Time) {
+	path := banStateFilePath()
+	payload, errRead := os.ReadFile(path)
+	if errRead != nil {
+		if !errors.Is(errRead, os.ErrNotExist) {
+			slog.Error("codex-429-autoban-sizhe233: failed to read ban state", "error", errRead)
+		}
+		return
+	}
+
+	var stored persistedBanState
+	if errUnmarshal := json.Unmarshal(payload, &stored); errUnmarshal != nil {
+		slog.Error("codex-429-autoban-sizhe233: failed to decode ban state", "error", errUnmarshal)
+		return
+	}
+	if stored.SchemaVersion != banStateSchema {
+		slog.Warn("codex-429-autoban-sizhe233: ignored unsupported ban state schema", "schema_version", stored.SchemaVersion)
+		return
+	}
+
+	restored := make(map[string]banEntry, len(stored.Bans))
+	for authID, entry := range stored.Bans {
+		authID = strings.TrimSpace(authID)
+		if authID == "" || entry.ResetAt.IsZero() || !now.Before(entry.ResetAt) {
+			continue
+		}
+		restored[authID] = entry
+	}
+	s.mu.Lock()
+	if s.bans == nil {
+		s.bans = make(map[string]banEntry, len(restored))
+	}
+	for authID, entry := range restored {
+		s.bans[authID] = entry
+	}
+	s.mu.Unlock()
+
+	if len(restored) > 0 {
+		slog.Info("codex-429-autoban-sizhe233: restored active credential bans", "count", len(restored))
+	}
+	if len(restored) != len(stored.Bans) {
+		s.persistCurrent()
+	}
 }
 
 func main() {}
@@ -209,6 +352,7 @@ func cliproxy_plugin_init(_ *C.cliproxy_host_api, plugin *C.cliproxy_plugin_api)
 	if plugin == nil {
 		return 1
 	}
+	banStore.load(time.Now())
 	plugin.abi_version = C.uint32_t(pluginabi.ABIVersion)
 	plugin.call = C.cliproxy_plugin_call_fn(C.cliproxyPluginCall)
 	plugin.free_buffer = C.cliproxy_plugin_free_fn(C.cliproxyPluginFree)
@@ -282,9 +426,10 @@ func pluginRegistration() registration {
 			ConfigFields:     []pluginapi.ConfigField{},
 		},
 		Capabilities: registrationCapability{
-			UsagePlugin:   true,
-			Scheduler:     true,
-			ManagementAPI: true,
+			UsagePlugin:               true,
+			Scheduler:                 true,
+			SchedulerAcrossPriorities: true,
+			ManagementAPI:             true,
 		},
 	}
 }
@@ -406,25 +551,39 @@ func handleSchedulerPick(raw []byte) ([]byte, error) {
 
 	now := time.Now()
 	available := make([]pluginapi.SchedulerAuthCandidate, 0, len(req.Candidates))
+	var earliestReset time.Time
 	for _, candidate := range req.Candidates {
 		// Only Codex credentials are subject to our bans.
 		if !strings.EqualFold(candidate.Provider, providerCodex) {
 			available = append(available, candidate)
 			continue
 		}
-		// clearIfExpired auto-re-enables credentials whose reset time passed.
-		if banStore.clearIfExpired(candidate.ID, now) {
+		// activeEntry auto-re-enables credentials whose reset time passed.
+		if entry, stillBanned := banStore.activeEntry(candidate.ID, now); stillBanned {
 			// Still banned: drop from the candidate list.
+			if earliestReset.IsZero() || entry.ResetAt.Before(earliestReset) {
+				earliestReset = entry.ResetAt
+			}
 			continue
 		}
 		available = append(available, candidate)
 	}
 
-	// If every Codex candidate is banned (and there were no non-Codex ones),
-	// decline to handle so CPA's own logic can decide (e.g. wait on its
-	// built-in cooldown, or return an error). We do not force a pick here.
+	// If every candidate is banned, v8's terminal rejection stops the host from
+	// falling back to its built-in scheduler with the original, unfiltered
+	// candidate set. That prevents it from selecting an account this plugin just
+	// excluded.
 	if len(available) == 0 {
-		return okEnvelope(pluginapi.SchedulerPickResponse{Handled: false})
+		message := "all matching Codex credentials are currently rate-limited"
+		if !earliestReset.IsZero() {
+			message += "; earliest reset at " + earliestReset.UTC().Format(time.RFC3339)
+		}
+		return okEnvelope(pluginapi.SchedulerPickResponse{
+			Handled:      true,
+			Reject:       true,
+			RejectCode:   "auth_unavailable",
+			RejectReason: message,
+		})
 	}
 
 	// CPA applies our response as follows (conductor.go):
@@ -475,12 +634,12 @@ func managementRegistration() pluginapi.ManagementRegistrationResponse {
 			{
 				Method:      http.MethodPost,
 				Path:        managementRoutePrefix + "/unban",
-				Description: "Remove one Codex auth from the in-memory ban list. Body: {\"auth_id\":\"...\"}.",
+				Description: "Remove one Codex auth from the persisted ban list. Body: {\"auth_id\":\"...\"}.",
 			},
 			{
 				Method:      http.MethodPost,
 				Path:        managementRoutePrefix + "/unban-all",
-				Description: "Remove every Codex auth from the in-memory ban list.",
+				Description: "Remove every Codex auth from the persisted ban list.",
 			},
 		},
 		Resources: []pluginapi.ResourceRoute{
@@ -882,14 +1041,9 @@ func headerUnixTime(h http.Header, key string) time.Time {
 // ---- envelope / response helpers ----
 
 type envelope struct {
-	OK     bool            `json:"ok"`
-	Result json.RawMessage `json:"result,omitempty"`
-	Error  *envelopeError  `json:"error,omitempty"`
-}
-
-type envelopeError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	OK     bool             `json:"ok"`
+	Result json.RawMessage  `json:"result,omitempty"`
+	Error  *pluginabi.Error `json:"error,omitempty"`
 }
 
 type registration struct {
@@ -899,9 +1053,10 @@ type registration struct {
 }
 
 type registrationCapability struct {
-	UsagePlugin   bool `json:"usage_plugin"`
-	Scheduler     bool `json:"scheduler"`
-	ManagementAPI bool `json:"management_api"`
+	UsagePlugin               bool `json:"usage_plugin"`
+	Scheduler                 bool `json:"scheduler"`
+	SchedulerAcrossPriorities bool `json:"scheduler_across_priorities,omitempty"`
+	ManagementAPI             bool `json:"management_api"`
 }
 
 func okEnvelope(v any) ([]byte, error) {
@@ -913,7 +1068,7 @@ func okEnvelope(v any) ([]byte, error) {
 }
 
 func errorEnvelope(code, message string) []byte {
-	raw, _ := json.Marshal(envelope{OK: false, Error: &envelopeError{Code: code, Message: message}})
+	raw, _ := json.Marshal(envelope{OK: false, Error: &pluginabi.Error{Code: code, Message: message}})
 	return raw
 }
 

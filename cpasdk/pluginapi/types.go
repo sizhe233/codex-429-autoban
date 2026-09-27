@@ -519,6 +519,13 @@ type SchedulerPickResponse struct {
 	DelegateBuiltin string
 	// Handled reports whether the plugin made a scheduling decision.
 	Handled bool
+	// Reject terminates candidate selection without falling back to a built-in
+	// scheduler. Supported by CPA v8 and later.
+	Reject bool
+	// RejectReason is the user-visible reason for a terminal rejection.
+	RejectReason string
+	// RejectCode is the machine-readable code for a terminal rejection.
+	RejectCode string
 }
 
 // ModelRouteRequest describes the original request context offered to a model router plugin.
