@@ -15,6 +15,8 @@
 
 `v0.3.1` 需要 CPA `v8.0.0` 或更高版本：当全部候选都处于 ban 状态时，插件会终止本次调度，避免 CPA 回退到原始候选集并再次选中已 ban 的账号。
 
+`v0.3.2` 起，若候选中没有被 ban 的 codex 凭证，插件不做调度决定（`Handled: false`），由 CPA 按配置的 `routing.strategy` 与会话粘性选择；此前版本在这种情况下会强制 CPA 使用 round-robin。部分凭证被 ban 时，插件仍在最高优先级的可用凭证中按 ID 顺序选择第一个。
+
 ## 怎么判断 5 小时还是周限额
 
 OpenAI 的 ChatGPT/Codex 后端在 429 时会返回一组自定义头（不是标准的 `x-ratelimit-*`）：

@@ -71,7 +71,7 @@ import (
 
 const (
 	pluginName    = "codex-429-autoban-sizhe233"
-	pluginVersion = "0.3.1"
+	pluginVersion = "0.3.2"
 
 	// providerCodex is the CPA provider key for OpenAI Codex (ChatGPT backend).
 	providerCodex = "codex"
@@ -593,17 +593,17 @@ func handleSchedulerPick(raw []byte) ([]byte, error) {
 	//                                                   candidate set (it cannot
 	//                                                   be shrunk by the plugin)
 	//   - else (Handled false)                      -> host falls back to its
-	//                                                   own built-in scheduler
+	//                                                   own configured selector
+	//                                                   (routing.strategy plus
+	//                                                   session affinity)
 	//
-	// Because DelegateBuiltin would let round-robin pick a banned credential,
-	// when anything is banned we pick an available AuthID ourselves. When
-	// nothing is banned we delegate to round-robin to preserve normal
-	// load-balancing.
+	// Because the host would then see the full candidate set, when anything is
+	// banned we pick an available AuthID ourselves. When nothing is banned we
+	// return Handled false so the host keeps its configured routing strategy
+	// and session affinity; forcing DelegateBuiltin round-robin here would
+	// override both.
 	if len(available) == len(req.Candidates) {
-		return okEnvelope(pluginapi.SchedulerPickResponse{
-			DelegateBuiltin: pluginapi.SchedulerBuiltinRoundRobin,
-			Handled:         true,
-		})
+		return okEnvelope(pluginapi.SchedulerPickResponse{Handled: false})
 	}
 	// Pick the available candidate with the highest numeric priority value
 	// (CPA's convention: higher priority value = higher precedence).

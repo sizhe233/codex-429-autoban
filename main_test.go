@@ -77,6 +77,38 @@ func TestHandleSchedulerPickSelectsUnbannedCredential(t *testing.T) {
 	}
 }
 
+func TestHandleSchedulerPickNoBansDefersToHostRouting(t *testing.T) {
+	restoreBans := replaceBansForTest(map[string]banEntry{
+		"auth-elsewhere": {ResetAt: time.Now().Add(30 * time.Minute), Window: "5h"},
+	})
+	t.Cleanup(restoreBans)
+
+	raw := schedulerPickRequest(t,
+		pluginapi.SchedulerAuthCandidate{ID: "auth-a", Provider: providerCodex},
+		pluginapi.SchedulerAuthCandidate{ID: "auth-b", Provider: providerCodex},
+		pluginapi.SchedulerAuthCandidate{ID: "auth-c", Provider: "claude"},
+	)
+	response, err := handleSchedulerPick(raw)
+	if err != nil {
+		t.Fatalf("handleSchedulerPick() error = %v", err)
+	}
+
+	var envelope pluginabi.Envelope
+	if err := json.Unmarshal(response, &envelope); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !envelope.OK {
+		t.Fatalf("response error = %#v", envelope.Error)
+	}
+	var decision pluginapi.SchedulerPickResponse
+	if err := json.Unmarshal(envelope.Result, &decision); err != nil {
+		t.Fatalf("decode decision: %v", err)
+	}
+	if decision.Handled || decision.Reject || decision.AuthID != "" || decision.DelegateBuiltin != "" {
+		t.Fatalf("decision = %#v, want Handled=false so the host keeps its routing strategy and session affinity", decision)
+	}
+}
+
 func TestPluginRegistrationReceivesCandidatesAcrossPriorities(t *testing.T) {
 	if !pluginRegistration().Capabilities.SchedulerAcrossPriorities {
 		t.Fatal("SchedulerAcrossPriorities = false, want true")
